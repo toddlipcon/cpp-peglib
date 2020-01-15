@@ -1530,6 +1530,7 @@ public:
         {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override;
+    size_t parse_macro(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const;
 
     void accept(Visitor& v) override;
 
@@ -2351,33 +2352,39 @@ inline any Holder::reduce(SemanticValues& sv, any& dt) const {
 inline size_t Reference::parse(
     const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const {
 
+    Ope* ope;
     if (rule_) {
         // Reference rule
         if (rule_->is_macro) {
-            // Macro
-            FindReference vis(c.top_args(), rule_->params);
-
-            // Collect arguments
-            std::vector<std::shared_ptr<Ope>> args;
-            for (auto& arg: args_) {
-                arg->accept(vis);
-                args.emplace_back(std::move(vis.found_ope));
-            }
-
-            c.push_args(std::move(args));
-            auto se = make_scope_exit([&]() { c.pop_args(); });
-            auto ope = get_core_operator();
-            return ope->parse(s, n, sv, c, dt);
+            return parse_macro(s, n, sv, c, dt);
         } else {
             // Definition
-            auto ope = get_core_operator();
-            return ope->parse(s, n, sv, c, dt);
+            ope = get_core_operator().get();
         }
     } else {
         // Reference parameter in macro
         const auto& args = c.top_args();
-        return args[iarg_]->parse(s, n, sv, c, dt);
+        ope = args[iarg_].get();
     }
+    return ope->parse(s, n, sv, c, dt);
+}
+
+inline size_t Reference::parse_macro(
+    const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const {
+    // Macro
+    FindReference vis(c.top_args(), rule_->params);
+
+    // Collect arguments
+    std::vector<std::shared_ptr<Ope>> args;
+    for (auto& arg: args_) {
+        arg->accept(vis);
+        args.emplace_back(std::move(vis.found_ope));
+    }
+
+    c.push_args(std::move(args));
+    auto se = make_scope_exit([&]() { c.pop_args(); });
+    const auto& ope = get_core_operator();
+    return ope->parse(s, n, sv, c, dt);
 }
 
 inline const std::shared_ptr<Holder>& Reference::get_core_operator() const {
