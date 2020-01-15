@@ -20,6 +20,7 @@
 #include <cctype>
 #include <cassert>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <initializer_list>
 #include <iostream>
@@ -72,12 +73,14 @@ public:
 
     any(const any& rhs) : content_(rhs.clone()) {}
 
-    any(any&& rhs) : content_(rhs.content_) {
+    any(any&& rhs) noexcept : content_(rhs.content_) {
         rhs.content_ = nullptr;
     }
 
     template <typename T>
     any(const T& value) : content_(new holder<T>(value)) {}
+    template <typename T>
+    any(const T&& value) : content_(new holder<T>(value)) {}
 
     any& operator=(const any& rhs) {
         if (this != &rhs) {
@@ -180,11 +183,11 @@ const any& any_cast<any>(const any& val) {
 template <typename EF>
 struct scope_exit
 {
-    explicit scope_exit(EF&& f)
+    explicit scope_exit(EF&& f) noexcept
         : exit_function(std::move(f))
         , execute_on_destruction{true} {}
 
-    scope_exit(scope_exit&& rhs)
+    scope_exit(scope_exit&& rhs) noexcept
         : exit_function(std::move(rhs.exit_function))
         , execute_on_destruction{rhs.execute_on_destruction} {
             rhs.release();
@@ -802,7 +805,7 @@ public:
     const char*                                  message_pos;
     std::string                                  message; // TODO: should be `int`.
 
-    std::vector<std::shared_ptr<SemanticValues>> value_stack;
+    std::deque<SemanticValues> value_stack;
     size_t                                       value_stack_size;
     std::vector<std::vector<std::shared_ptr<Ope>>> args_stack;
 
@@ -843,14 +846,14 @@ public:
         , value_stack_size(0)
         , nest_level(0)
         , in_token(false)
-        , whitespaceOpe(a_whitespaceOpe)
+        , whitespaceOpe(std::move(a_whitespaceOpe))
         , in_whitespace(false)
-        , wordOpe(a_wordOpe)
+        , wordOpe(std::move(a_wordOpe))
         , def_count(a_def_count)
         , enablePackratParsing(a_enablePackratParsing)
         , cache_registered(enablePackratParsing ? def_count * (l + 1) : 0)
         , cache_success(enablePackratParsing ? def_count * (l + 1) : 0)
-        , tracer(a_tracer)
+        , tracer(std::move(a_tracer))
     {
         args_stack.resize(1);
         capture_scope_stack.resize(1);
@@ -890,9 +893,9 @@ public:
     SemanticValues& push() {
         assert(value_stack_size <= value_stack.size());
         if (value_stack_size == value_stack.size()) {
-            value_stack.emplace_back(std::make_shared<SemanticValues>());
+            value_stack.emplace_back();
         }
-        auto& sv = *value_stack[value_stack_size++];
+        auto& sv = value_stack[value_stack_size++];
         if (!sv.empty()) {
             sv.clear();
             sv.tags.clear();
@@ -907,8 +910,8 @@ public:
         value_stack_size--;
     }
 
-    void push_args(const std::vector<std::shared_ptr<Ope>>& args) {
-        args_stack.push_back(args);
+    void push_args(std::vector<std::shared_ptr<Ope>> args) {
+        args_stack.emplace_back(std::move(args));
     }
 
     void pop_args() {
@@ -1072,7 +1075,7 @@ public:
 class ZeroOrMore : public Ope
 {
 public:
-    ZeroOrMore(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    ZeroOrMore(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("ZeroOrMore", s, n, sv, dt);
@@ -1115,7 +1118,7 @@ public:
 class OneOrMore : public Ope
 {
 public:
-    OneOrMore(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    OneOrMore(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("OneOrMore", s, n, sv, dt);
@@ -1174,7 +1177,7 @@ public:
 class Option : public Ope
 {
 public:
-    Option(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    Option(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("Option", s, n, sv, dt);
@@ -1213,7 +1216,7 @@ public:
 class AndPredicate : public Ope
 {
 public:
-    AndPredicate(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    AndPredicate(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("AndPredicate", s, n, sv, dt);
@@ -1242,7 +1245,7 @@ public:
 class NotPredicate : public Ope
 {
 public:
-    NotPredicate(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    NotPredicate(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("NotPredicate", s, n, sv, dt);
@@ -1313,7 +1316,7 @@ public:
         }
     }
 
-    CharacterClass(const std::vector<std::pair<char32_t, char32_t>>& ranges) : ranges_(ranges) {}
+    CharacterClass(std::vector<std::pair<char32_t, char32_t>> ranges) : ranges_(std::move(ranges)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("CharacterClass", s, n, sv, dt);
@@ -1383,8 +1386,8 @@ public:
 class CaptureScope : public Ope
 {
 public:
-    CaptureScope(const std::shared_ptr<Ope>& ope)
-        : ope_(ope) {}
+    CaptureScope(std::shared_ptr<Ope> ope)
+        : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.push_capture_scope();
@@ -1406,8 +1409,8 @@ class Capture : public Ope
 public:
     typedef std::function<void (const char* s, size_t n, Context& c)> MatchAction;
 
-    Capture(const std::shared_ptr<Ope>& ope, MatchAction ma)
-        : ope_(ope), match_action_(ma) {}
+    Capture(std::shared_ptr<Ope> ope, MatchAction ma)
+        : ope_(std::move(ope)), match_action_(std::move(ma)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         const auto& rule = *ope_;
@@ -1427,7 +1430,7 @@ public:
 class TokenBoundary : public Ope
 {
 public:
-    TokenBoundary(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    TokenBoundary(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override;
 
@@ -1439,7 +1442,7 @@ public:
 class Ignore : public Ope
 {
 public:
-    Ignore(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    Ignore(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& /*sv*/, Context& c, any& dt) const override {
         const auto& rule = *ope_;
@@ -1460,7 +1463,7 @@ typedef std::function<size_t (const char* s, size_t n, SemanticValues& sv, any& 
 class User : public Ope
 {
 public:
-    User(Parser fn) : fn_(fn) {}
+    User(Parser fn) : fn_(std::move(fn)) {}
      size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("User", s, n, sv, dt);
         assert(fn_);
@@ -1530,7 +1533,7 @@ public:
 
     void accept(Visitor& v) override;
 
-    std::shared_ptr<Ope> get_core_operator() const;
+    const std::shared_ptr<Holder>& get_core_operator() const;
 
     const Grammar&    grammar_;
     const std::string name_;
@@ -1546,7 +1549,7 @@ public:
 class Whitespace : public Ope
 {
 public:
-    Whitespace(const std::shared_ptr<Ope>& ope) : ope_(ope) {}
+    Whitespace(std::shared_ptr<Ope> ope) : ope_(std::move(ope)) {}
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         if (c.in_whitespace) {
@@ -1588,24 +1591,24 @@ std::shared_ptr<Ope> cho(Args&& ...args) {
     return std::make_shared<PrioritizedChoice>(static_cast<std::shared_ptr<Ope>>(args)...);
 }
 
-inline std::shared_ptr<Ope> zom(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<ZeroOrMore>(ope);
+inline std::shared_ptr<Ope> zom(std::shared_ptr<Ope> ope) {
+    return std::make_shared<ZeroOrMore>(std::move(ope));
 }
 
-inline std::shared_ptr<Ope> oom(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<OneOrMore>(ope);
+inline std::shared_ptr<Ope> oom(std::shared_ptr<Ope> ope) {
+    return std::make_shared<OneOrMore>(std::move(ope));
 }
 
-inline std::shared_ptr<Ope> opt(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<Option>(ope);
+inline std::shared_ptr<Ope> opt(std::shared_ptr<Ope> ope) {
+    return std::make_shared<Option>(std::move(ope));
 }
 
-inline std::shared_ptr<Ope> apd(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<AndPredicate>(ope);
+inline std::shared_ptr<Ope> apd(std::shared_ptr<Ope> ope) {
+    return std::make_shared<AndPredicate>(std::move(ope));
 }
 
-inline std::shared_ptr<Ope> npd(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<NotPredicate>(ope);
+inline std::shared_ptr<Ope> npd(std::shared_ptr<Ope> ope) {
+    return std::make_shared<NotPredicate>(std::move(ope));
 }
 
 inline std::shared_ptr<Ope> lit(const std::string& s) {
@@ -1620,8 +1623,8 @@ inline std::shared_ptr<Ope> cls(const std::string& s) {
     return std::make_shared<CharacterClass>(s);
 }
 
-inline std::shared_ptr<Ope> cls(const std::vector<std::pair<char32_t, char32_t>>& ranges) {
-    return std::make_shared<CharacterClass>(ranges);
+inline std::shared_ptr<Ope> cls(std::vector<std::pair<char32_t, char32_t>> ranges) {
+    return std::make_shared<CharacterClass>(std::move(ranges));
 }
 
 inline std::shared_ptr<Ope> chr(char dt) {
@@ -1632,32 +1635,32 @@ inline std::shared_ptr<Ope> dot() {
     return std::make_shared<AnyCharacter>();
 }
 
-inline std::shared_ptr<Ope> csc(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<CaptureScope>(ope);
+inline std::shared_ptr<Ope> csc(std::shared_ptr<Ope> ope) {
+    return std::make_shared<CaptureScope>(std::move(ope));
 }
 
-inline std::shared_ptr<Ope> cap(const std::shared_ptr<Ope>& ope, Capture::MatchAction ma) {
-    return std::make_shared<Capture>(ope, ma);
+inline std::shared_ptr<Ope> cap(std::shared_ptr<Ope> ope, Capture::MatchAction ma) {
+    return std::make_shared<Capture>(std::move(ope), std::move(ma));
 }
 
-inline std::shared_ptr<Ope> tok(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<TokenBoundary>(ope);
+inline std::shared_ptr<Ope> tok(std::shared_ptr<Ope> ope) {
+    return std::make_shared<TokenBoundary>(std::move(ope));
 }
 
-inline std::shared_ptr<Ope> ign(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<Ignore>(ope);
+inline std::shared_ptr<Ope> ign(std::shared_ptr<Ope> ope) {
+    return std::make_shared<Ignore>(std::move(ope));
 }
 
 inline std::shared_ptr<Ope> usr(std::function<size_t (const char* s, size_t n, SemanticValues& sv, any& dt)> fn) {
-    return std::make_shared<User>(fn);
+    return std::make_shared<User>(std::move(fn));
 }
 
 inline std::shared_ptr<Ope> ref(const Grammar& grammar, const std::string& name, const char* s, bool is_macro, const std::vector<std::shared_ptr<Ope>>& args) {
     return std::make_shared<Reference>(grammar, name, s, is_macro, args);
 }
 
-inline std::shared_ptr<Ope> wsp(const std::shared_ptr<Ope>& ope) {
-    return std::make_shared<Whitespace>(std::make_shared<Ignore>(ope));
+inline std::shared_ptr<Ope> wsp(std::shared_ptr<Ope> ope) {
+    return std::make_shared<Whitespace>(std::make_shared<Ignore>(std::move(ope)));
 }
 
 inline std::shared_ptr<Ope> bkr(const std::string& name) {
@@ -1696,12 +1699,12 @@ struct Ope::Visitor
 struct AssignIDToDefinition : public Ope::Visitor
 {
     void visit(Sequence& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
     void visit(PrioritizedChoice& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
@@ -1727,7 +1730,7 @@ struct IsLiteralToken : public Ope::Visitor
     IsLiteralToken() : result_(false) {}
 
     void visit(PrioritizedChoice& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             if (!IsLiteralToken::check(*op)) {
                 return;
             }
@@ -1754,12 +1757,12 @@ struct TokenChecker : public Ope::Visitor
     TokenChecker() : has_token_boundary_(false), has_rule_(false) {}
 
     void visit(Sequence& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
     void visit(PrioritizedChoice& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
@@ -1794,7 +1797,7 @@ struct DetectLeftRecursion : public Ope::Visitor {
         : error_s(nullptr), name_(name), done_(false) {}
 
     void visit(Sequence& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
             if (done_) {
                 break;
@@ -1805,7 +1808,7 @@ struct DetectLeftRecursion : public Ope::Visitor {
         }
     }
     void visit(PrioritizedChoice& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
             if (error_s) {
                 done_ = true;
@@ -1848,12 +1851,12 @@ struct ReferenceChecker : public Ope::Visitor {
         : grammar_(grammar), params_(params) {}
 
     void visit(Sequence& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
     void visit(PrioritizedChoice& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
@@ -1886,12 +1889,12 @@ struct LinkReferences : public Ope::Visitor {
         : grammar_(grammar), params_(params) {}
 
     void visit(Sequence& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
     void visit(PrioritizedChoice& ope) override {
-        for (auto op: ope.opes_) {
+        for (const auto& op: ope.opes_) {
             op->accept(*this);
         }
     }
@@ -1922,19 +1925,21 @@ struct FindReference : public Ope::Visitor {
 
     void visit(Sequence& ope) override {
         std::vector<std::shared_ptr<Ope>> opes;
-        for (auto o: ope.opes_) {
+        opes.reserve(ope.opes_.size());
+        for (const auto& o: ope.opes_) {
             o->accept(*this);
-            opes.push_back(found_ope);
+            opes.emplace_back(std::move(found_ope));
         }
-        found_ope = std::make_shared<Sequence>(opes);
+        found_ope = std::make_shared<Sequence>(std::move(opes));
     }
     void visit(PrioritizedChoice& ope) override {
         std::vector<std::shared_ptr<Ope>> opes;
-        for (auto o: ope.opes_) {
+        opes.reserve(ope.opes_.size());
+        for (const auto& o: ope.opes_) {
             o->accept(*this);
-            opes.push_back(found_ope);
+            opes.emplace_back(std::move(found_ope));
         }
-        found_ope = std::make_shared<PrioritizedChoice>(opes);
+        found_ope = std::make_shared<PrioritizedChoice>(std::move(opes));
     }
     void visit(ZeroOrMore& ope) override { ope.ope_->accept(*this); found_ope = zom(found_ope); }
     void visit(OneOrMore& ope) override { ope.ope_->accept(*this); found_ope = oom(found_ope); }
@@ -2017,11 +2022,11 @@ public:
         holder_->outer_ = this;
     }
 
-    Definition(Definition&& rhs)
+    Definition(Definition&& rhs) noexcept
         : name(std::move(rhs.name))
         , ignoreSemanticValue(rhs.ignoreSemanticValue)
-        , whitespaceOpe(rhs.whitespaceOpe)
-        , wordOpe(rhs.wordOpe)
+        , whitespaceOpe(std::move(rhs.whitespaceOpe))
+        , wordOpe(std::move(rhs.wordOpe))
         , enablePackratParsing(rhs.enablePackratParsing)
         , is_macro(rhs.is_macro)
         , holder_(std::move(rhs.holder_))
@@ -2103,9 +2108,9 @@ public:
         return parse_and_get_value(s, n, dt, val, path);
     }
 
-    Action operator=(Action a) {
+    Action operator=(const Action& a) {
         action = a;
-        return a;
+        return action;
     }
 
     template <typename T>
@@ -2123,7 +2128,7 @@ public:
         holder_->accept(v);
     }
 
-    std::shared_ptr<Ope> get_core_operator() const {
+    const std::shared_ptr<Ope>& get_core_operator() const {
         return holder_->ope_;
     }
 
@@ -2151,8 +2156,8 @@ public:
 private:
     friend class Reference;
 
-    Definition& operator=(const Definition& rhs);
-    Definition& operator=(Definition&& rhs);
+    Definition& operator=(const Definition& rhs) = delete;
+    Definition& operator=(Definition&& rhs) noexcept = delete;
 
     Result parse_core(const char* s, size_t n, SemanticValues& sv, any& dt, const char* path) const {
         std::shared_ptr<Ope> ope = holder_;
@@ -2241,7 +2246,7 @@ inline size_t TokenBoundary::parse(const char* s, size_t n, SemanticValues& sv, 
     const auto& rule = *ope_;
     auto len = rule.parse(s, n, sv, c, dt);
     if (success(len)) {
-        sv.tokens.push_back(std::make_pair(s, len));
+        sv.tokens.emplace_back(s, len);
 
         if (c.whitespaceOpe) {
             auto l = c.whitespaceOpe->parse(s + len, n - len, sv, c, dt);
@@ -2345,6 +2350,7 @@ inline any Holder::reduce(SemanticValues& sv, any& dt) const {
 
 inline size_t Reference::parse(
     const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const {
+
     if (rule_) {
         // Reference rule
         if (rule_->is_macro) {
@@ -2353,12 +2359,12 @@ inline size_t Reference::parse(
 
             // Collect arguments
             std::vector<std::shared_ptr<Ope>> args;
-            for (auto arg: args_) {
+            for (auto& arg: args_) {
                 arg->accept(vis);
-                args.push_back(vis.found_ope);
+                args.emplace_back(std::move(vis.found_ope));
             }
 
-            c.push_args(args);
+            c.push_args(std::move(args));
             auto se = make_scope_exit([&]() { c.pop_args(); });
             auto ope = get_core_operator();
             return ope->parse(s, n, sv, c, dt);
@@ -2374,7 +2380,7 @@ inline size_t Reference::parse(
     }
 }
 
-inline std::shared_ptr<Ope> Reference::get_core_operator() const {
+inline const std::shared_ptr<Holder>& Reference::get_core_operator() const {
     return rule_->holder_;
 }
 
@@ -2429,7 +2435,7 @@ inline void AssignIDToDefinition::visit(Holder& ope) {
 
 inline void AssignIDToDefinition::visit(Reference& ope) {
     if (ope.rule_) {
-        for (auto arg: ope.args_) {
+        for (const auto& arg: ope.args_) {
             arg->accept(*this);
         }
         ope.rule_->accept(*this);
@@ -2439,7 +2445,7 @@ inline void AssignIDToDefinition::visit(Reference& ope) {
 inline void TokenChecker::visit(Reference& ope) {
     if (ope.is_macro_) {
         ope.rule_->accept(*this);
-        for (auto arg: ope.args_) {
+        for (const auto& arg: ope.args_) {
             arg->accept(*this);
         }
     } else {
@@ -2503,7 +2509,7 @@ inline void LinkReferences::visit(Reference& ope) {
         ope.rule_ = &rule;
     }
 
-    for (auto arg: ope.args_) {
+    for (const auto& arg: ope.args_) {
         arg->accept(*this);
     }
 }
@@ -2534,7 +2540,7 @@ public:
         size_t       n,
         const Rules& rules,
         std::string& start,
-        Log          log)
+        const Log&   log)
     {
         return get_instance().perform_core(s, n, rules, start, log);
     }
@@ -2543,7 +2549,7 @@ public:
         const char*  s,
         size_t       n,
         std::string& start,
-        Log          log)
+        const Log&   log)
     {
         Rules dummy;
         return parse(s, n, dummy, start, log);
@@ -2700,6 +2706,7 @@ private:
                 return any_cast<std::shared_ptr<Ope>>(sv[0]);
             } else {
                 std::vector<std::shared_ptr<Ope>> opes;
+                opes.reserve(sv.size());
                 for (auto i = 0u; i < sv.size(); i++) {
                     opes.emplace_back(any_cast<std::shared_ptr<Ope>>(sv[i]));
                 }
@@ -2713,6 +2720,7 @@ private:
                 return any_cast<std::shared_ptr<Ope>>(sv[0]);
             } else {
                 std::vector<std::shared_ptr<Ope>> opes;
+                opes.reserve(sv.size());
                 for (const auto& x: sv) {
                     opes.emplace_back(any_cast<std::shared_ptr<Ope>>(x));
                 }
@@ -2787,7 +2795,7 @@ private:
                 }
                 case 5: { // Capture
                     const auto& name = any_cast<std::string>(sv[0]);
-                    auto ope = any_cast<std::shared_ptr<Ope>>(sv[1]);
+                    const auto& ope = any_cast<std::shared_ptr<Ope>>(sv[1]);
                     return cap(ope, [name](const char* a_s, size_t a_n, Context& c) {
                         c.capture_scope_stack.back()[name] = std::string(a_s, a_n);
                     });
@@ -2824,14 +2832,14 @@ private:
         g["Range"] = [](const SemanticValues& sv) {
             switch (sv.choice()) {
                 case 0: {
-                    auto s1 = any_cast<std::string>(sv[0]);
-                    auto s2 = any_cast<std::string>(sv[1]);
+                    const auto& s1 = any_cast<std::string>(sv[0]);
+                    const auto& s2 = any_cast<std::string>(sv[1]);
                     auto cp1 = decode_codepoint(s1.c_str(), s1.length());
                     auto cp2 = decode_codepoint(s2.c_str(), s2.length());
                     return std::make_pair(cp1, cp2);
                 }
                 case 1: {
-                    auto s = any_cast<std::string>(sv[0]);
+                    const auto& s = any_cast<std::string>(sv[0]);
                     auto cp = decode_codepoint(s.c_str(), s.length());
                     return std::make_pair(cp, cp);
                 }
@@ -2872,7 +2880,7 @@ private:
         size_t       n,
         const Rules& rules,
         std::string& start,
-        Log          log)
+        const Log&   log)
     {
         Data data;
         any dt = &data;
@@ -2978,7 +2986,7 @@ private:
         if (grammar.count(WHITESPACE_DEFINITION_NAME)) {
             for (auto& x: grammar) {
                 auto& rule = x.second;
-                auto ope = rule.get_core_operator();
+                const auto& ope = rule.get_core_operator();
                 if (IsLiteralToken::check(*ope)) {
                     rule <= tok(ope);
                 }
@@ -3010,7 +3018,7 @@ struct AstBase : public Annotation
     AstBase(const char* a_path, size_t a_line, size_t a_column,
             const char* a_name, size_t a_position, size_t a_length,
             size_t a_choice_count, size_t a_choice,
-            const std::vector<std::shared_ptr<AstBase>>& a_nodes)
+            std::vector<std::shared_ptr<AstBase>> a_nodes)
         : path(a_path ? a_path : "")
         , line(a_line)
         , column(a_column)
@@ -3027,7 +3035,7 @@ struct AstBase : public Annotation
         , original_tag(tag)
 #endif
         , is_token(false)
-        , nodes(a_nodes)
+        , nodes(std::move(a_nodes))
     {}
 
     AstBase(const char* a_path, size_t a_line, size_t a_column,
@@ -3127,7 +3135,7 @@ void ast_to_s_core(
     if (fn) {
       s += fn(ast, level + 1);
     }
-    for (auto node : ast.nodes) {
+    for (const auto& node : ast.nodes) {
         ast_to_s_core(node, s, level + 1, fn);
     }
 }
@@ -3144,12 +3152,12 @@ std::string ast_to_s(
 
 struct AstOptimizer
 {
-    AstOptimizer(bool optimize_nodes, const std::vector<std::string>& filters = {})
+    AstOptimizer(bool optimize_nodes, std::vector<std::string> filters = {})
         : optimize_nodes_(optimize_nodes)
-        , filters_(filters) {}
+        , filters_(std::move(filters)) {}
 
     template <typename T>
-    std::shared_ptr<T> optimize(std::shared_ptr<T> original, std::shared_ptr<T> parent = nullptr) {
+    std::shared_ptr<T> optimize(const std::shared_ptr<T>& original, const std::shared_ptr<T>& parent = nullptr) {
 
         auto found = std::find(filters_.begin(), filters_.end(), original->name) != filters_.end();
         bool opt = optimize_nodes_ ? !found : found;
@@ -3164,9 +3172,9 @@ struct AstOptimizer
         auto ast = std::make_shared<T>(*original);
         ast->parent = parent;
         ast->nodes.clear();
-        for (auto node : original->nodes) {
+        for (const auto& node : original->nodes) {
             auto child = optimize(node, ast);
-            ast->nodes.push_back(child);
+            ast->nodes.emplace_back(std::move(child));
         }
         return ast;
     }
@@ -3359,7 +3367,7 @@ public:
                         name.c_str(), std::distance(sv.ss, sv.c_str()), sv.length(), sv.choice_count(), sv.choice(),
                         sv.transform<std::shared_ptr<T>>());
 
-                    for (auto node: ast->nodes) {
+                    for (const auto& node: ast->nodes) {
                         node->parent = ast;
                     }
                     return ast;
@@ -3372,7 +3380,7 @@ public:
     void enable_trace(Tracer tracer) {
         if (grammar_ != nullptr) {
             auto& rule = (*grammar_)[start_];
-            rule.tracer = tracer;
+            rule.tracer = std::move(tracer);
         }
     }
 
