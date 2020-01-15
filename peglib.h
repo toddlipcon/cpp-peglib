@@ -450,8 +450,8 @@ inline std::pair<size_t, size_t> line_info(const char* start, const char* cur) {
 * String tag
 */
 #ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
-inline constexpr unsigned int str2tag(const char* str, int h = 0) {
-    return !str[h] ? 5381 : (str2tag(str, h + 1) * 33) ^ static_cast<unsigned char>(str[h]);
+inline constexpr unsigned int str2tag(const char* str, int h = 5381) {
+    return (*str == '\0') ? h : str2tag(str + 1, (h * 33) ^ static_cast<unsigned char>(*str));
 }
 
 namespace udl {
