@@ -521,6 +521,29 @@ struct SemanticValues : protected std::vector<any>
 
     SemanticValues() : s_(nullptr), n_(0), choice_count_(0), choice_(0) {}
 
+    void append_sv(SemanticValues&& other) {
+        if (empty()) {
+            swap(other);
+        } else {
+            std::move(other.begin(), other.end(), std::back_inserter(*this));
+        }
+
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
+        if (tags.empty()) {
+            tags.swap(other.tags);
+        } else {
+            tags.insert(tags.end(), other.tags.begin(), other.tags.end());
+        }
+#endif
+
+        if (tokens.empty()) {
+            tokens.swap(other.tokens);
+        } else {
+            tokens.insert(tokens.end(), other.tokens.begin(), other.tokens.end());
+        }
+    }
+
+    using std::vector<any>::value_type;
     using std::vector<any>::iterator;
     using std::vector<any>::const_iterator;
     using std::vector<any>::size;
@@ -923,7 +946,7 @@ public:
     }
 
     void push_capture_scope() {
-        capture_scope_stack.resize(capture_scope_stack.size() + 1);
+        capture_scope_stack.emplace_back();
     }
 
     void pop_capture_scope() {
@@ -934,8 +957,12 @@ public:
         assert(capture_scope_stack.size() >= 2);
         auto it = capture_scope_stack.rbegin();
         auto it_prev = it + 1;
-        for (const auto& kv: *it) {
-            (*it_prev)[kv.first] = kv.second;
+        if (it_prev->empty()) {
+            *it_prev = std::move(*it);
+        } else {
+            for (const auto& kv: *it) {
+                (*it_prev)[kv.first] = kv.second;
+            }
         }
     }
 
@@ -1000,13 +1027,9 @@ public:
             }
             i += len;
         }
-        sv.insert(sv.end(), chldsv.begin(), chldsv.end());
-#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
-        sv.tags.insert(sv.tags.end(), chldsv.tags.begin(), chldsv.tags.end());
-#endif
+        sv.append_sv(std::move(chldsv));
         sv.s_ = chldsv.c_str();
         sv.n_ = chldsv.length();
-        sv.tokens.insert(sv.tokens.end(), chldsv.tokens.begin(), chldsv.tokens.end());
         return i;
     }
 
@@ -1052,15 +1075,11 @@ public:
             const auto& rule = *ope;
             auto len = rule.parse(s, n, chldsv, c, dt);
             if (success(len)) {
-                sv.insert(sv.end(), chldsv.begin(), chldsv.end());
-#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
-                sv.tags.insert(sv.tags.end(), chldsv.tags.begin(), chldsv.tags.end());
-#endif
+                sv.append_sv(std::move(chldsv));
                 sv.s_ = chldsv.c_str();
                 sv.n_ = chldsv.length();
                 sv.choice_count_ = opes_.size();
                 sv.choice_ = id;
-                sv.tokens.insert(sv.tokens.end(), chldsv.tokens.begin(), chldsv.tokens.end());
 
                 c.shift_capture_values();
                 return len;
@@ -2338,7 +2357,7 @@ inline size_t Holder::parse(const char* s, size_t n, SemanticValues& sv, Context
 
     if (success(len)) {
         if (!outer_->ignoreSemanticValue) {
-            sv.emplace_back(val);
+            sv.emplace_back(std::move(val));
 #ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
             sv.tags.emplace_back(str2tag(outer_->name.c_str()));
 #endif
