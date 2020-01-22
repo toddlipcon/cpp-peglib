@@ -987,6 +987,7 @@ public:
 
     size_t parse(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt) const override {
         c.trace("Sequence", s, n, sv, dt);
+        auto pop_se = make_scope_exit([&]() { c.pop(); });
         auto& chldsv = c.push();
         size_t i = 0;
         for (const auto& ope : opes_) {
