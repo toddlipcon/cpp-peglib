@@ -1000,7 +1000,9 @@ public:
             i += len;
         }
         sv.insert(sv.end(), chldsv.begin(), chldsv.end());
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
         sv.tags.insert(sv.tags.end(), chldsv.tags.begin(), chldsv.tags.end());
+#endif
         sv.s_ = chldsv.c_str();
         sv.n_ = chldsv.length();
         sv.tokens.insert(sv.tokens.end(), chldsv.tokens.begin(), chldsv.tokens.end());
@@ -1050,7 +1052,9 @@ public:
             auto len = rule.parse(s, n, chldsv, c, dt);
             if (success(len)) {
                 sv.insert(sv.end(), chldsv.begin(), chldsv.end());
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
                 sv.tags.insert(sv.tags.end(), chldsv.tags.begin(), chldsv.tags.end());
+#endif
                 sv.s_ = chldsv.c_str();
                 sv.n_ = chldsv.length();
                 sv.choice_count_ = opes_.size();
@@ -1097,7 +1101,9 @@ public:
             } else {
                 if (sv.size() != save_sv_size) {
                     sv.erase(sv.begin() + static_cast<std::ptrdiff_t>(save_sv_size));
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
                     sv.tags.erase(sv.tags.begin() + static_cast<std::ptrdiff_t>(save_sv_size));
+#endif
                 }
                 if (sv.tokens.size() != save_tok_size) {
                     sv.tokens.erase(sv.tokens.begin() + static_cast<std::ptrdiff_t>(save_tok_size));
@@ -1156,7 +1162,9 @@ public:
             } else {
                 if (sv.size() != save_sv_size) {
                     sv.erase(sv.begin() + static_cast<std::ptrdiff_t>(save_sv_size));
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
                     sv.tags.erase(sv.tags.begin() + static_cast<std::ptrdiff_t>(save_sv_size));
+#endif
                 }
                 if (sv.tokens.size() != save_tok_size) {
                     sv.tokens.erase(sv.tokens.begin() + static_cast<std::ptrdiff_t>(save_tok_size));
@@ -1198,7 +1206,9 @@ public:
         } else {
             if (sv.size() != save_sv_size) {
                 sv.erase(sv.begin() + static_cast<std::ptrdiff_t>(save_sv_size));
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
                 sv.tags.erase(sv.tags.begin() + static_cast<std::ptrdiff_t>(save_sv_size));
+#endif
             }
             if (sv.tokens.size() != save_tok_size) {
                 sv.tokens.erase(sv.tokens.begin() + static_cast<std::ptrdiff_t>(save_tok_size));
@@ -2328,7 +2338,9 @@ inline size_t Holder::parse(const char* s, size_t n, SemanticValues& sv, Context
     if (success(len)) {
         if (!outer_->ignoreSemanticValue) {
             sv.emplace_back(val);
+#ifndef PEGLIB_NO_CONSTEXPR_SUPPORT
             sv.tags.emplace_back(str2tag(outer_->name.c_str()));
+#endif
         }
     } else {
         if (outer_->error_message) {
