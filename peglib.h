@@ -1281,7 +1281,6 @@ public:
     LiteralString(const std::string& s, bool ignore_case)
         : lit_(s)
         , ignore_case_(ignore_case)
-        , init_is_word_(false)
         , is_word_(false)
         {}
 
@@ -1291,7 +1290,7 @@ public:
 
     std::string lit_;
     bool ignore_case_;
-    mutable bool init_is_word_;
+    mutable std::once_flag init_is_word_;
     mutable bool is_word_;
 };
 
@@ -2163,19 +2162,24 @@ private:
     Result parse_core(const char* s, size_t n, SemanticValues& sv, any& dt, const char* path) const {
         std::shared_ptr<Ope> ope = holder_;
 
-        AssignIDToDefinition vis;
-        holder_->accept(vis);
-
+        size_t num_defs = 0;
         if (whitespaceOpe) {
             ope = std::make_shared<Sequence>(whitespaceOpe, ope);
-            whitespaceOpe->accept(vis);
         }
+        if (enablePackratParsing) {
+            AssignIDToDefinition vis;
+            holder_->accept(vis);
 
-        if (wordOpe) {
-            wordOpe->accept(vis);
+            if (whitespaceOpe) {
+                whitespaceOpe->accept(vis);
+            }
+
+            if (wordOpe) {
+                wordOpe->accept(vis);
+            }
+            num_defs = vis.ids.size();
         }
-
-        Context cxt(path, s, n, vis.ids.size(), whitespaceOpe, wordOpe, enablePackratParsing, tracer);
+        Context cxt(path, s, n, num_defs, whitespaceOpe, wordOpe, enablePackratParsing, tracer);
         auto len = ope->parse(s, n, sv, cxt, dt);
         return Result{ success(len), len, cxt.error_pos, cxt.message_pos, cxt.message };
     }
@@ -2190,7 +2194,7 @@ private:
  */
 
 inline size_t parse_literal(const char* s, size_t n, SemanticValues& sv, Context& c, any& dt,
-        const std::string& lit, bool& init_is_word, bool& is_word, bool ignore_case)
+    const std::string& lit, std::once_flag& init_is_word, bool& is_word, bool ignore_case)
 {
     size_t i = 0;
     for (; i < lit.size(); i++) {
@@ -2205,13 +2209,12 @@ inline size_t parse_literal(const char* s, size_t n, SemanticValues& sv, Context
     static SemanticValues dummy_sv;
     static any dummy_dt;
 
-    if (!init_is_word) { // TODO: Protect with mutex
+    std::call_once(init_is_word, [&]() {
         if (c.wordOpe) {
             auto len = c.wordOpe->parse(lit.data(), lit.size(), dummy_sv, dummy_c, dummy_dt);
             is_word = success(len);
         }
-        init_is_word = true;
-    }
+    });
 
     if (is_word) {
         auto ope = std::make_shared<NotPredicate>(c.wordOpe);
@@ -2398,7 +2401,7 @@ inline size_t BackReference::parse(const char* s, size_t n, SemanticValues& sv, 
         const auto& captures = *it;
         if (captures.find(name_) != captures.end()) {
             const auto& lit = captures.at(name_);
-            auto init_is_word = false;
+            std::once_flag init_is_word;
             auto is_word = false;
             return parse_literal(s, n, sv, c, dt, lit, init_is_word, is_word, false);
         }
